@@ -8,7 +8,8 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
-    "ingest": "tsx --env-file=.env.local scripts/ingest-pdf.ts"
+    "ingest": "tsx --env-file=.env.local scripts/ingest-pdf.ts",
+    "seed:demo-users": "tsx --env-file=.env.local scripts/seed-demo-users.ts"
   },
   "keywords": [],
   "author": "",

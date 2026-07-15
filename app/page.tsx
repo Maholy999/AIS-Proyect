@@ -2,77 +2,91 @@
 
 import { FormEvent, useEffect, useState } from "react";
 
-type Source = { title: string; page: number | null; url: string; excerpt: string; similarity: number };
-type Result = {
-  status: "answered" | "escalated";
-  category: string;
-  urgency: "baja" | "media" | "alta";
-  answer?: string;
-  reason?: string;
-  sources: Source[];
-};
-type ContextItem = { id: string; name?: string; display_name?: string; demo_code?: string };
-type ContextData = { patients: ContextItem[]; clinics: ContextItem[]; locations: ContextItem[]; rooms: ContextItem[]; specialties: ContextItem[]; providers: ContextItem[] };
+type Provider = { id: string; display_name: string; specialties?: { name: string } | null };
+type Assignment = { providers: Provider | null };
+type Patient = { id: string; demo_code: string; display_name: string; priority: "baja" | "media" | "alta"; care_status: string; patient_assignments?: Assignment[] };
+type Specialty = { id: string; name: string };
+type DoctorData = { role: "doctor"; profile: { display_name: string }; patients: Patient[]; specialties: Specialty[]; providers: Provider[] };
+type PatientData = { role: "patient"; profile: { display_name: string }; patient: Patient };
+type Dashboard = DoctorData | PatientData;
 
-const examples = [
-  "¿Cómo puedo aliviar una tos leve de tres días?",
-  "Mi papá tiene dolor fuerte en el pecho y le falta el aire."
-];
+const priorityLabels = { alta: "Alta", media: "Media", baja: "Baja" };
+const statuses = ["Pendiente de revisión", "En atención", "En seguimiento"];
+
+async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, options);
+  const data = await response.json() as T & { error?: string };
+  if (!response.ok) throw new Error(data.error ?? "No fue posible completar la acción.");
+  return data;
+}
 
 export default function Home() {
-  const [query, setQuery] = useState("");
-  const [result, setResult] = useState<Result | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [checking, setChecking] = useState(true);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [contextData, setContextData] = useState<ContextData | null>(null);
-  const [context, setContext] = useState({ patientId: "", clinicId: "", locationId: "", roomId: "", specialtyId: "", providerId: "" });
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    fetch("/api/context").then(async (response) => {
-      if (!response.ok) return;
-      const data = await response.json() as ContextData;
-      setContextData(data);
-      setContext({ patientId: data.patients[0]?.id ?? "", clinicId: data.clinics[0]?.id ?? "", locationId: data.locations[0]?.id ?? "", roomId: data.rooms[0]?.id ?? "", specialtyId: data.specialties[0]?.id ?? "", providerId: data.providers[0]?.id ?? "" });
-    }).catch(() => undefined);
-  }, []);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!query.trim() || loading) return;
-    setLoading(true); setError(""); setResult(null);
-    try {
-      const response = await fetch("/api/consult", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, context }) });
-      const data = await response.json() as Result & { error?: string };
-      if (!response.ok) throw new Error(data.error ?? "No fue posible procesar la consulta.");
-      setResult(data);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Ocurrió un error inesperado.");
-    } finally { setLoading(false); }
+  async function loadDashboard() {
+    const data = await request<Dashboard>("/api/dashboard");
+    setDashboard(data);
   }
 
-  return <main>
-    <section className="masthead"><p className="eyebrow">CLÍNICA · MANTA, ECUADOR</p><h1>Primero, la señal.<br /><em>Después, la respuesta.</em></h1><p className="intro">Describe una consulta de salud. El sistema la prioriza y responde solo cuando encuentra una fuente clínica verificable.</p></section>
-    <section className="console" aria-label="Consulta de salud">
-      <div className="console-heading"><span>Consulta segura</span><span className="status-dot">RAG activo</span></div>
-      <form onSubmit={submit}>
-        <label htmlFor="query">¿Qué necesitas consultar?</label>
-        <textarea id="query" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Ej.: Tengo fiebre y dolor de garganta desde ayer…" maxLength={1200} required />
-        {contextData ? <fieldset className="clinical-context"><legend>Contexto de atención · datos demo</legend><div className="select-grid">
-          <label>Paciente<select value={context.patientId} onChange={(e) => setContext({ ...context, patientId: e.target.value })}>{contextData.patients.map((item) => <option key={item.id} value={item.id}>{item.demo_code} · {item.display_name}</option>)}</select></label>
-          <label>Especialidad<select value={context.specialtyId} onChange={(e) => setContext({ ...context, specialtyId: e.target.value })}>{contextData.specialties.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label>Profesional<select value={context.providerId} onChange={(e) => setContext({ ...context, providerId: e.target.value })}>{contextData.providers.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label>
-          <label>Sala<select value={context.roomId} onChange={(e) => setContext({ ...context, roomId: e.target.value })}>{contextData.rooms.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-        </div></fieldset> : <p className="context-loading">Cargando contexto clínico…</p>}
-        <div className="form-footer"><span>No incluyas nombres ni datos personales.</span><button disabled={loading}>{loading ? "Analizando…" : "Analizar consulta"}</button></div>
-      </form>
-      <div className="examples">{examples.map((example) => <button key={example} type="button" onClick={() => setQuery(example)}>{example}</button>)}</div>
-    </section>
-    {error ? <p className="error" role="alert">{error}</p> : null}
-    {result ? <section className={`result ${result.status}`} aria-live="polite">
-      <div className="result-meta"><span>{result.status === "answered" ? "ORIENTACIÓN BASADA EN FUENTE" : "CASO ESCALADO"}</span><span>{result.category} · urgencia {result.urgency}</span></div>
-      {result.status === "answered" ? <><h2>Respuesta</h2><p>{result.answer}</p></> : <><h2>Un profesional debe revisarlo</h2><p>{result.reason}</p><p className="context">Se guardó el contexto de la consulta para que el equipo médico pueda continuar la atención.</p></>}
-      {result.sources.length ? <div className="sources"><h3>Fuente consultada</h3>{result.sources.map((source) => <a key={`${source.url}-${source.page}`} href={source.url} target="_blank" rel="noreferrer"><strong>{source.title}</strong>{source.page ? ` · pág. ${source.page}` : ""}<small>{source.excerpt}</small></a>)}</div> : null}
-      <p className="disclaimer">Esta herramienta no diagnostica ni sustituye la atención de un profesional de salud.</p>
-    </section> : null}
-  </main>;
+  useEffect(() => {
+    request("/api/auth/me").then(loadDashboard).catch(() => undefined).finally(() => setChecking(false));
+  }, []);
+
+  async function login(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true); setError("");
+    try {
+      await request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
+      await loadDashboard();
+      setPassword("");
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "No fue posible iniciar sesión."); }
+    finally { setBusy(false); }
+  }
+
+  async function logout() {
+    await request("/api/auth/logout", { method: "POST" });
+    setDashboard(null); setEmail(""); setPassword("");
+  }
+
+  if (checking) return <main className="loading-page">Cargando acceso seguro…</main>;
+  if (!dashboard) return <main className="login-shell"><section className="login-intro"><p className="eyebrow">CLÍNICA MANTA · ENTORNO DEMO</p><h1>Tu atención,<br /><em>en contexto.</em></h1><p>Accede con tu cuenta de Supabase para ver solo la información asignada a tu rol.</p></section><form className="login-card" onSubmit={login}><p className="section-kicker">INICIAR SESIÓN</p><label>Correo<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required placeholder="nombre@clinicamanta.test" /></label><label>Contraseña<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>{error && <p className="error" role="alert">{error}</p>}<button disabled={busy}>{busy ? "Verificando…" : "Entrar al panel"}</button><p className="form-note">Las cuentas demo se crean con <code>npm run seed:demo-users</code>.</p></form></main>;
+  return <main className="app-shell"><header className="app-header"><div><p className="eyebrow">CLÍNICA MANTA · PANEL SEGURO</p><h1>{dashboard.role === "doctor" ? "Triaje clínico" : "Mi atención"}</h1></div><div className="user-menu"><span>{dashboard.profile.display_name}</span><button className="quiet-button" onClick={logout}>Cerrar sesión</button></div></header>{dashboard.role === "doctor" ? <DoctorPanel dashboard={dashboard} reload={loadDashboard} /> : <PatientPanel dashboard={dashboard} />}</main>;
+}
+
+function PatientPanel({ dashboard }: { dashboard: PatientData }) {
+  const { patient } = dashboard;
+  const doctors = patient.patient_assignments?.map((item) => item.providers).filter(Boolean) as Provider[] | undefined;
+  return <section className="patient-view"><p className="section-kicker">EXPEDIENTE DEMO · {patient.demo_code}</p><h2>Hola, {patient.display_name.split(" ")[0]}.</h2><p className="lead">El equipo revisa tu atención según la prioridad clínica actual.</p><div className="patient-status"><article><span>Prioridad</span><strong className={`priority ${patient.priority}`}>{priorityLabels[patient.priority]}</strong></article><article><span>Estado</span><strong>{patient.care_status}</strong></article><article><span>Equipo asignado</span><strong>{doctors?.length ? doctors.map((doctor) => `${doctor.display_name}${doctor.specialties?.name ? ` · ${doctor.specialties.name}` : ""}`).join(", ") : "Asignación pendiente"}</strong></article></div><p className="privacy-note">Este panel es informativo. Para síntomas graves o de aparición súbita, busca atención de emergencia.</p></section>;
+}
+
+function DoctorPanel({ dashboard, reload }: { dashboard: DoctorData; reload: () => Promise<void> }) {
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState<string | null>(null);
+  const [specialtyName, setSpecialtyName] = useState("");
+  const [providerName, setProviderName] = useState("");
+  const [specialtyId, setSpecialtyId] = useState("");
+  const [patientId, setPatientId] = useState("");
+
+  async function updatePatient(patient: Patient, priority: Patient["priority"], careStatus: string) {
+    setSaving(patient.id); setError("");
+    try { await request(`/api/doctor/patients/${patient.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ priority, careStatus }) }); await reload(); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : "No se pudo actualizar."); }
+    finally { setSaving(null); }
+  }
+  async function addSpecialty(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setError("");
+    try { await request("/api/doctor/specialties", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: specialtyName }) }); setSpecialtyName(""); await reload(); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : "No se pudo crear."); }
+  }
+  async function addProvider(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setError("");
+    try { await request("/api/doctor/providers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName: providerName, specialtyId, patientId }) }); setProviderName(""); setSpecialtyId(""); setPatientId(""); await reload(); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : "No se pudo crear."); }
+  }
+  return <><section className="doctor-summary"><p className="lead">Prioriza, asigna y actualiza los casos de demostración desde un solo lugar.</p><span>{dashboard.patients.filter((patient) => patient.priority === "alta").length} casos de prioridad alta</span></section>{error && <p className="error" role="alert">{error}</p>}<section className="patients-section"><div className="section-heading"><p className="section-kicker">PACIENTES</p><h2>Lista de prioridad</h2></div><div className="patient-list">{dashboard.patients.map((patient) => <article className="patient-row" key={patient.id}><div className="patient-ident"><span className={`priority-dot ${patient.priority}`} /><div><strong>{patient.display_name}</strong><small>{patient.demo_code} · {patient.patient_assignments?.map((assignment) => assignment.providers?.display_name).filter(Boolean).join(", ") || "Sin profesional asignado"}</small></div></div><label>Prioridad<select value={patient.priority} disabled={saving === patient.id} onChange={(event) => updatePatient(patient, event.target.value as Patient["priority"], patient.care_status)}>{Object.entries(priorityLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label>Estado<select value={patient.care_status} disabled={saving === patient.id} onChange={(event) => updatePatient(patient, patient.priority, event.target.value)}>{statuses.map((status) => <option value={status} key={status}>{status}</option>)}</select></label></article>)}</div></section><section className="quick-actions"><div className="section-heading"><p className="section-kicker">INGRESO RÁPIDO</p><h2>Equipo clínico</h2></div><div className="action-grid"><form onSubmit={addSpecialty}><label>Nueva especialidad<input value={specialtyName} onChange={(event) => setSpecialtyName(event.target.value)} placeholder="Ej. Pediatría" required /></label><button>Crear especialidad</button></form><form onSubmit={addProvider}><label>Nuevo profesional<input value={providerName} onChange={(event) => setProviderName(event.target.value)} placeholder="Ej. Dr. Andrés Paz" required /></label><label>Especialidad<select value={specialtyId} onChange={(event) => setSpecialtyId(event.target.value)} required><option value="">Selecciona una</option>{dashboard.specialties.map((specialty) => <option value={specialty.id} key={specialty.id}>{specialty.name}</option>)}</select></label><label>Asignar a paciente (opcional)<select value={patientId} onChange={(event) => setPatientId(event.target.value)}><option value="">Sin asignar</option>{dashboard.patients.map((patient) => <option value={patient.id} key={patient.id}>{patient.display_name}</option>)}</select></label><button>Crear profesional</button></form></div></section></>;
 }

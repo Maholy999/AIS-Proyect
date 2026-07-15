@@ -9,6 +9,21 @@ MVP de orientación clínica: clasifica una consulta, detecta banderas rojas, bu
 3. Indexa un PDF público: `npm run ingest -- "https://…/documento.pdf" "Nombre oficial del documento"`.
 4. Ejecuta `npm run dev`.
 
+## Acceso demo clínico
+
+1. Ejecuta también `supabase/migrations/20260715180000_auth_clinical_dashboards.sql` en **Supabase Dashboard → SQL Editor**.
+2. Añade `DEMO_USERS_PASSWORD=` con una contraseña temporal de al menos ocho caracteres a `.env.local`.
+3. Ejecuta `npm run seed:demo-users`.
+
+Se crearán cuatro cuentas de Supabase Auth que comparten esa contraseña:
+
+- `doctor.demo@clinicamanta.test`
+- `paciente.ana@clinicamanta.test`
+- `paciente.bruno@clinicamanta.test`
+- `paciente.carla@clinicamanta.test`
+
+En producción, crea cuentas reales desde Supabase Auth y sustituye estas cuentas de demostración.
+
 ## Reglas de escalamiento
 
 - Urgencia alta: dolor torácico intenso, dificultad respiratoria, desmayo, convulsión, signos de ACV, sangrado que no cede, posible sobredosis o riesgo suicida.
